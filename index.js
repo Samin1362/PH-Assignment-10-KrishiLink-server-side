@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 const app = express();
@@ -31,14 +31,70 @@ async function run() {
   try {
     await client.connect();
 
-    const db = client.db('krishiLink_db');
-    const productCollection = db.collection('products');
+    const db = client.db("krishiLink_db");
+    const cropsCollection = db.collection("crops");
+    const interestCollection = db.collection("interests");
 
-    app.post("/products", async(req, res) => {
-      const newProduct = req.body;
-      const result = await productCollection.insertOne(newProduct);
+    //get request
+    app.get("/crops", async (req, res) => {
+      try {
+        const result = await cropsCollection.find().toArray();
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Failed to get crop", error });
+      }
+    });
+
+    app.get("/crops/interest", async (req, res) => {
+      try {
+        const result = await cropsCollection
+          .aggregate([
+            { $unwind: "$crop.interests" },
+            { $replaceRoot: { newRoot: "$crop.interests" } },
+          ])
+          .toArray();
+
+        res.send(result);
+      } catch (e) {
+        res.status(500).send({ message: "Faild to get interest", e });
+      }
+    });
+
+    //post request
+    app.post("/crops", async (req, res) => {
+      const cropId = new ObjectId();
+      const crop = req.body;
+      const newCrop = { _id: cropId, crop };
+      const result = await cropsCollection.insertOne(newCrop);
       res.send(result);
-    })
+    });
+
+    app.post("/interest/:id", async (req, res) => {
+      try {
+        const cropId = req.params.id;
+        const interest = req.body;
+        interest._id = new ObjectId();
+        interest.cropId = cropId;
+
+        // inserting the interest to the interest collection
+        await interestCollection.insertOne(interest);
+
+        // adding to crop interest array
+        const updateResult = await cropsCollection.updateOne(
+          { _id: new ObjectId(cropId) },
+          { $push: { "crop.interests": interest } }
+        );
+
+        res.send({
+          message: "Interest added successfully",
+          interest,
+          updateResult,
+        });
+
+      } catch (e) {
+        res.status(500).send({ message: "Failed to add interest", e });
+      }
+    });
 
     // Send a ping to confirm a successful connection
     await client.db("admin").command({ ping: 1 });
@@ -46,7 +102,6 @@ async function run() {
       "Pinged your deployment. You successfully connected to MongoDB!"
     );
   } finally {
-    
   }
 }
 
