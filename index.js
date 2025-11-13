@@ -53,28 +53,38 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Start server and connect to database
-async function startServer() {
-  try {
-    // Initialize Firebase Admin SDK
-    initializeFirebase();
+// Initialize database connection (for both local and Vercel)
+let isConnected = false;
 
-    // Connect to MongoDB
-    await connectDB();
+async function initializeApp() {
+  if (!isConnected) {
+    try {
+      // Initialize Firebase Admin SDK
+      initializeFirebase();
 
-    // Start listening
-    app.listen(port, () => {
-      console.log(`🚀 KrishiLink server is running on port: ${port}`);
-      console.log(`📡 API Base URL: http://localhost:${port}`);
-      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
-    });
-  } catch (error) {
-    console.error("❌ Failed to start server:", error);
-    process.exit(1);
+      // Connect to MongoDB
+      await connectDB();
+
+      isConnected = true;
+      console.log("✅ App initialized successfully");
+    } catch (error) {
+      console.error("❌ Failed to initialize app:", error);
+      throw error;
+    }
   }
 }
 
-startServer();
+// Initialize on startup (but don't call app.listen for Vercel)
+initializeApp().catch(console.error);
+
+// For local development
+if (process.env.NODE_ENV !== "production") {
+  app.listen(port, () => {
+    console.log(`🚀 KrishiLink server is running on port: ${port}`);
+    console.log(`📡 API Base URL: http://localhost:${port}`);
+    console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
+  });
+}
 
 // Export app for Vercel
 module.exports = app;
