@@ -1,112 +1,80 @@
-const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
+const { connectDB } = require("./config/db");
+const { initializeFirebase } = require("./config/firebase");
+
+// Import routes
+const cropsRoutes = require("./routes/cropsRoutes");
+const interestsRoutes = require("./routes/interestsRoutes");
+const usersRoutes = require("./routes/usersRoutes");
+
 const app = express();
-const port = process.env.PORT || 3001;
+const port = process.env.PORT || 5000;
 
-//mongodb uri and client
-// password: MfLF69AAb7MDrrVz
-const uri =
-  "mongodb+srv://krishiLinkDbUser:MfLF69AAb7MDrrVz@cluster0.l2cobj0.mongodb.net/?appName=Cluster0";
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
-const client = new MongoClient(uri, {
-  serverApi: {
-    version: ServerApiVersion.v1,
-    strict: true,
-    deprecationErrors: true,
-  },
-});
-
-//middleware
+// Middleware
 app.use(cors());
 app.use(express.json());
 
+// Root endpoint
 app.get("/", (req, res) => {
-  res.send("server is running.");
+  res.json({
+    success: true,
+    message: "🌾 KrishiLink API Server is running successfully!",
+    version: "1.0.0",
+    endpoints: {
+      crops: "/api/crops",
+      interests: "/api/interests",
+      users: "/api/users",
+    },
+  });
 });
 
-//for database
-async function run() {
+// API Routes
+app.use("/api/crops", cropsRoutes);
+app.use("/api/interests", interestsRoutes);
+app.use("/api/users", usersRoutes);
+
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found",
+  });
+});
+
+// Global Error Handler
+app.use((err, req, res, next) => {
+  console.error("Global error:", err);
+  res.status(500).json({
+    success: false,
+    message: "Internal server error",
+    error: process.env.NODE_ENV === "development" ? err.message : undefined,
+  });
+});
+
+// Start server and connect to database
+async function startServer() {
   try {
-    await client.connect();
+    // Initialize Firebase Admin SDK
+    initializeFirebase();
 
-    const db = client.db("krishiLink_db");
-    const cropsCollection = db.collection("crops");
-    const interestCollection = db.collection("interests");
+    // Connect to MongoDB
+    await connectDB();
 
-    //get request
-    app.get("/crops", async (req, res) => {
-      try {
-        const result = await cropsCollection.find().toArray();
-        res.send(result);
-      } catch (error) {
-        res.status(500).send({ message: "Failed to get crop", error });
-      }
+    // Start listening
+    app.listen(port, () => {
+      console.log(`🚀 KrishiLink server is running on port: ${port}`);
+      console.log(`📡 API Base URL: http://localhost:${port}`);
+      console.log(`🌍 Environment: ${process.env.NODE_ENV || "development"}`);
     });
-
-    app.get("/crops/interest", async (req, res) => {
-      try {
-        const result = await cropsCollection
-          .aggregate([
-            { $unwind: "$crop.interests" },
-            { $replaceRoot: { newRoot: "$crop.interests" } },
-          ])
-          .toArray();
-
-        res.send(result);
-      } catch (e) {
-        res.status(500).send({ message: "Faild to get interest", e });
-      }
-    });
-
-    //post request
-    app.post("/crops", async (req, res) => {
-      const cropId = new ObjectId();
-      const crop = req.body;
-      const newCrop = { _id: cropId, crop };
-      const result = await cropsCollection.insertOne(newCrop);
-      res.send(result);
-    });
-
-    app.post("/interest/:id", async (req, res) => {
-      try {
-        const cropId = req.params.id;
-        const interest = req.body;
-        interest._id = new ObjectId();
-        interest.cropId = cropId;
-
-        // inserting the interest to the interest collection
-        await interestCollection.insertOne(interest);
-
-        // adding to crop interest array
-        const updateResult = await cropsCollection.updateOne(
-          { _id: new ObjectId(cropId) },
-          { $push: { "crop.interests": interest } }
-        );
-
-        res.send({
-          message: "Interest added successfully",
-          interest,
-          updateResult,
-        });
-
-      } catch (e) {
-        res.status(500).send({ message: "Failed to add interest", e });
-      }
-    });
-
-    // Send a ping to confirm a successful connection
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
-  } finally {
+  } catch (error) {
+    console.error("❌ Failed to start server:", error);
+    process.exit(1);
   }
 }
 
-run().catch(console.dir);
+startServer();
 
-app.listen(port, () => {
-  console.log(`server is running on port: ${port}`);
-});
+// Export app for Vercel
+module.exports = app;
